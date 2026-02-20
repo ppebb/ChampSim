@@ -46,15 +46,15 @@ private:
 
   int reads;
   int writes;
-  int allowed_max_prefetches;
+  size_t allowed_max_prefetches;
 
   // Bloom filter for the current candidate
-  BloomFilter sandbox;
+  BloomFilter sandbox_filter;
 
   void next_candidate()
   {
     // Reset for the next eval period
-    sandbox.clear();
+    sandbox_filter.clear();
     int idx = active_prefetchers[candidate_idx];
 
     // Store state to be considered during prefetching
@@ -100,19 +100,19 @@ private:
     std::sort(active_prefetchers.begin(), active_prefetchers.end(), [&](int a, int b) { return candidates[a].score > candidates[b].score; });
 
     std::vector<int> new_candidates;
-    for (int i = 0; i < candidates.size() && new_candidates.size() < 4; i++)
+    for (size_t i = 0; i < candidates.size() && new_candidates.size() < 4; i++)
       if (std::find(active_prefetchers.begin(), active_prefetchers.end(), i) == active_prefetchers.end())
-        new_candidates.push_back(i);
+        new_candidates.push_back((int)i);
 
     // The idx of the 4 worst prefetchers will be at the end of
     // active_prefetchers, replace them with the new ones
-    for (int i = 0; i < 4; i++) {
-      int slot = active_prefetchers.size() - 4 + i;
+    for (size_t i = 0; i < 4; i++) {
+      int slot = (int)(active_prefetchers.size() - 4 + i);
       active_prefetchers[slot] = new_candidates[i];
     }
 
     // Reset the scores for all prefetchers being evaluated again
-    for (int i = 0; i < active_prefetchers.size(); i++) {
+    for (size_t i = 0; i < active_prefetchers.size(); i++) {
       int idx = active_prefetchers[i];
       candidates[idx].score = 0;
       candidates[idx].allowed_prefetches = 0;

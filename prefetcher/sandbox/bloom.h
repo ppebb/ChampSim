@@ -35,6 +35,8 @@ private:
   }
 
 public:
+  BloomFilter() : bits(8192, false), num_bits(8192), num_hashes(3) {}
+
   BloomFilter(size_t bits_count, size_t hashes) : bits(bits_count, false), num_bits(bits_count), num_hashes(hashes)
   {
     if (bits_count == 0)
