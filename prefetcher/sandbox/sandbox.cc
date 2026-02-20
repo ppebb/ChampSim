@@ -80,6 +80,16 @@ uint32_t sandbox::prefetcher_cache_operate(uint64_t addr, uint64_t ip, bool cach
     for (size_t i = 0; i < cand.allowed_prefetches && issued_prefetches < allowed_max_prefetches; i++) {
       uint64_t pf_addr = addr + ((i + 1) * cand.offset * 64);
 
+      // Convert to champsim addresses to compare blocks, prevent reading into
+      // another page.
+      champsim::address cs_addr{addr};
+      champsim::address cs_pf_addr{pf_addr};
+
+      // If we would prefetch outside of the current page, do not issue the
+      // prefetch
+      if (champsim::page_number{cs_addr} != champsim::page_number{cs_pf_addr})
+        break;
+
       // Champsim API for prefetch_line using a uint64_t is deprecated... Guh.
       // Always fill this level, don't fill the LLC.
       prefetch_line(champsim::address{pf_addr}, true, 0);
