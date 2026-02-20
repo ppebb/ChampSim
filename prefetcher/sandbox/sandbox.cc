@@ -47,13 +47,13 @@ uint32_t sandbox::prefetcher_cache_operate(uint64_t addr, uint64_t ip, bool cach
   // check the strides A-n, A-2n, A-3n
   constexpr size_t stream_len = 4;
   for (size_t i = 0; i < stream_len; i++) {
-    uint64_t probe = addr - i * eval_offset;
+    uint64_t probe = addr - (i * eval_offset * 64);
     if (sandbox_filter.possibly_contains(probe))
       eval_hits++;
   }
 
   // Fake fetch next cache line by inserting it into the filter.
-  uint64_t fake_pf_addr = addr + eval_offset;
+  uint64_t fake_pf_addr = addr + eval_offset * 64;
   sandbox_filter.insert(fake_pf_addr);
 
   eval_accesses++;
@@ -74,7 +74,7 @@ uint32_t sandbox::prefetcher_cache_operate(uint64_t addr, uint64_t ip, bool cach
     const Candidate& cand = candidates[idx];
 
     for (size_t i = 0; i < cand.allowed_prefetches && issued_prefetches < allowed_max_prefetches; i++) {
-      uint64_t pf_addr = addr + (i + 1) * cand.offset;
+      uint64_t pf_addr = addr + ((i + 1) * cand.offset * 64);
 
       // Champsim API for prefetch_line using a uint64_t is deprecated... Guh.
       // Always fill this level, don't fill the LLC.
