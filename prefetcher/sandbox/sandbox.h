@@ -30,6 +30,8 @@ private:
   // Candidate pool for an entire round.
   std::vector<Candidate> candidates;
   std::array<int, 16> active_prefetchers;
+  // sorted by abs size, so that the lower offset prefetchers can run first
+  std::array<int, 16> sorted_active_prefetchers;
   // Idx for the current candidate
   int candidate_idx;
   int offset_idx;
@@ -41,6 +43,10 @@ private:
   // Counter up to 1024 for the current eval window
   // Placed into the correct `Candidate` upon finishing an eval period
   int eval_hits;
+
+  int reads;
+  int writes;
+  int allowed_max_prefetches;
 
   // Bloom filter for the current candidate
   BloomFilter sandbox;
@@ -63,9 +69,18 @@ private:
     else
       candidates[idx].allowed_prefetches = 0;
 
+    // hypothetical maximum number of prefetches.
+    // 8 per cache access
+    constexpr int max_prefetch_per_period = 8 * 256;
+
+    // Recalculate bandwidth as defined in section 4.4
+    allowed_max_prefetches = std::max(2, std::min(8, max_prefetch_per_period / ((reads + writes) | 1)));
+
     // Reset the current state
     eval_accesses = 0;
     eval_hits = 0;
+    reads = 0;
+    writes = 0;
 
     candidate_idx = candidate_idx + 1;
 
@@ -102,6 +117,20 @@ private:
       candidates[idx].score = 0;
       candidates[idx].allowed_prefetches = 0;
     }
+
+    // Copy new round of prefetchers into sorted_active_prefetchers, then sort
+    // it by offset (abs) so the lower offset candidates can be evaluated
+    // first, as described in 4.4
+    std::copy(active_prefetchers.begin(), active_prefetchers.end(), sorted_active_prefetchers.begin());
+    std::sort(sorted_active_prefetchers.begin(), sorted_active_prefetchers.end(), [&](int a, int b) {
+      int offset_a = candidates[a].offset;
+      int offset_b = candidates[b].offset;
+      int abs_a = std::abs(offset_a);
+      int abs_b = std::abs(offset_b);
+      if (abs_a != abs_b)
+        return abs_a < abs_b;
+      return offset_a > offset_b;
+    });
   }
 
 public:

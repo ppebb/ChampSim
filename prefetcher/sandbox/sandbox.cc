@@ -7,6 +7,11 @@ void sandbox::prefetcher_initialize()
   candidate_idx = 0;
   eval_accesses = 0;
   eval_hits = 0;
+  reads = 0;
+  writes = 0;
+  // This is the max as described in the paper, start value does not matter
+  // since it is recalculated every evaluation
+  allowed_max_prefetches = 8;
 
   candidates.resize(NUM_CANDIDATES);
 
@@ -17,8 +22,11 @@ void sandbox::prefetcher_initialize()
     candidates[i].allowed_prefetches = 0;
 
     // Set the first 16 active prefetchers
-    if (i < 16)
+    if (i < 16) {
       active_prefetchers[i] = i;
+      // Starting lsit of offsets is sorted
+      sorted_active_prefetchers[i] = i;
+    }
   }
 
   eval_offset = candidates[active_prefetchers[candidate_idx]].offset;
@@ -44,21 +52,33 @@ uint32_t sandbox::prefetcher_cache_operate(uint64_t addr, uint64_t ip, bool cach
   sandbox.insert(pf_addr);
 
   eval_accesses++;
+  access_type access = static_cast<access_type>(type);
+  // Track access types to calculate bandwidth in next_candidate
+  if (access == access_type::LOAD)
+    reads++;
+  else if (access == access_type::WRITE)
+    writes++;
 
   // Eval window is 256 accesses long.
   if (eval_accesses >= 256)
     next_candidate();
 
-  for (int idx : active_prefetchers) {
+  size_t issued_prefetches = 0;
+  // Issue real requests if any prefetchers are allowed.
+  for (int idx : sorted_active_prefetchers) {
     const Candidate& cand = candidates[idx];
 
-    for (int i = 0; i < cand.allowed_prefetches; i++) {
+    for (int i = 0; i < cand.allowed_prefetches && issued_prefetches < allowed_max_prefetches; i++) {
       uint64_t pf_addr = addr + (i + 1) * cand.offset;
 
       // Champsim API for prefetch_line using a uint64_t is deprecated... Guh.
       // Always fill this level, don't fill the LLC.
       prefetch_line(champsim::address{pf_addr}, true, 0);
+      issued_prefetches++;
     }
+
+    if (issued_prefetches >= allowed_max_prefetches)
+      break;
   }
 
   return metadata_in;
