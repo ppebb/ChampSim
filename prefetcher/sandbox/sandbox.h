@@ -13,9 +13,11 @@
 #define CUTOFF_HI 768
 
 struct Candidate {
+  uint64_t last_eval_round;   // last round the candidate was used in
   int offset;                 // -16 to +16
   uint64_t score;             // accuracy score, 0 to 1024 within a given eval period
   uint8_t allowed_prefetches; // 0-3, depending on CUTOFF_LOW thru CUTOFF_HI
+  bool is_active;             // Is this currently in the set of active prefetchers
 };
 
 struct sandbox : public champsim::modules::prefetcher {
@@ -34,7 +36,6 @@ private:
   std::array<int, 16> sorted_active_prefetchers;
   // Idx for the current candidate
   int candidate_idx;
-  int offset_idx;
 
   // Candidate offset being considered, -16 to +16
   int eval_offset;
@@ -43,6 +44,8 @@ private:
   // Counter up to 1024 for the current eval window
   // Placed into the correct `Candidate` upon finishing an eval period
   int eval_hits;
+
+  size_t eval_round;
 
   int reads;
   int writes;
@@ -53,12 +56,14 @@ private:
 
   void next_candidate()
   {
+    int idx = active_prefetchers[candidate_idx];
+
     // Reset for the next eval period
     sandbox_filter.clear();
-    int idx = active_prefetchers[candidate_idx];
 
     // Store state to be considered during prefetching
     candidates[idx].score = eval_hits;
+    candidates[idx].last_eval_round = eval_round;
 
     if (eval_hits > CUTOFF_HI)
       candidates[idx].allowed_prefetches = 3;
@@ -73,8 +78,12 @@ private:
     // 8 per cache access
     constexpr int max_prefetch_per_period = 8 * 256;
 
+    int total = reads + writes;
+    if (total == 0)
+      total = 1;
+
     // Recalculate bandwidth as defined in section 4.4
-    allowed_max_prefetches = std::max(2, std::min(8, max_prefetch_per_period / ((reads + writes) | 1)));
+    allowed_max_prefetches = std::max(2, std::min(8, max_prefetch_per_period / total));
 
     // Reset the current state
     eval_accesses = 0;
@@ -95,27 +104,40 @@ private:
 
   void cycle_candidates()
   {
+    eval_round++;
+
+    std::cout << "CYCLE" << std::endl;
+
     // Sort prefetchers by performance, so we can remove the bottom 4
     // (according to section 4.3)
     std::sort(active_prefetchers.begin(), active_prefetchers.end(), [&](int a, int b) { return candidates[a].score > candidates[b].score; });
 
-    std::vector<int> new_candidates;
-    for (size_t i = 0; i < candidates.size() && new_candidates.size() < 4; i++)
-      if (std::find(active_prefetchers.begin(), active_prefetchers.end(), i) == active_prefetchers.end())
-        new_candidates.push_back((int)i);
+    std::vector<int> inactive;
+
+    // Select inactive candidates, then sort by the last eval round so we get
+    // the least recently considered candidate.
+    for (int i = 0; i < NUM_CANDIDATES; i++) {
+      if (!candidates[i].is_active)
+        inactive.push_back(i);
+    }
+
+    std::sort(inactive.begin(), inactive.end(), [&](int a, int b) { return candidates[a].last_eval_round < candidates[b].last_eval_round; });
+
+    std::vector<int> new_candidates(inactive.begin(), inactive.begin() + 4);
 
     // The idx of the 4 worst prefetchers will be at the end of
     // active_prefetchers, replace them with the new ones
     for (size_t i = 0; i < 4; i++) {
       int slot = (int)(active_prefetchers.size() - 4 + i);
+      // Set the replaced prefetcher to inactive
+      candidates[active_prefetchers[slot]].is_active = false;
       active_prefetchers[slot] = new_candidates[i];
-    }
+      int new_candidate_idx = active_prefetchers[slot];
 
-    // Reset the scores for all prefetchers being evaluated again
-    for (size_t i = 0; i < active_prefetchers.size(); i++) {
-      int idx = active_prefetchers[i];
-      candidates[idx].score = 0;
-      candidates[idx].allowed_prefetches = 0;
+      // Also reset stats for the new prefetchers so they will not fire until being evaluated
+      candidates[new_candidate_idx].score = 0;
+      candidates[new_candidate_idx].allowed_prefetches = 0;
+      candidates[new_candidate_idx].is_active = true;
     }
 
     // Copy new round of prefetchers into sorted_active_prefetchers, then sort

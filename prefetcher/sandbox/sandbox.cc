@@ -12,6 +12,7 @@ void sandbox::prefetcher_initialize()
   candidate_idx = 0;
   eval_accesses = 0;
   eval_hits = 0;
+  eval_round = 0;
   reads = 0;
   writes = 0;
   // This is the max as described in the paper, start value does not matter
@@ -22,22 +23,25 @@ void sandbox::prefetcher_initialize()
 
   // Zero out all of the candidates
   for (size_t i = 0; i < NUM_CANDIDATES; i++) {
+    candidates[i].last_eval_round = 0;
     candidates[i].offset = offsets[i];
     candidates[i].score = 0;
     candidates[i].allowed_prefetches = 0;
 
     // Set the first 16 active prefetchers
     if (i < 16) {
+      candidates[i].is_active = true;
       active_prefetchers[i] = (int)i;
       // Starting lsit of offsets is sorted
       sorted_active_prefetchers[i] = (int)i;
-    }
+    } else
+      candidates[i].is_active = false;
   }
 
   eval_offset = candidates[active_prefetchers[candidate_idx]].offset;
 
   // Arbitrarily chosen values. Should store around 512 addresses max.
-  //sandbox = BloomFilter(8192, 3);
+  // sandbox = BloomFilter(8192, 3);
 }
 
 uint32_t sandbox::prefetcher_cache_operate(uint64_t addr, uint64_t ip, bool cache_hit, uint8_t type, uint32_t metadata_in)
