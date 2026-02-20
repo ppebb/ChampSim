@@ -106,8 +106,6 @@ private:
   {
     eval_round++;
 
-    std::cout << "CYCLE" << std::endl;
-
     // Sort prefetchers by performance, so we can remove the bottom 4
     // (according to section 4.3)
     std::sort(active_prefetchers.begin(), active_prefetchers.end(), [&](int a, int b) { return candidates[a].score > candidates[b].score; });
